@@ -12,7 +12,7 @@ import re
 import json
 import gc
 import logging
-import ConfigParser
+import configparser
 import os
 import socket
 import argparse
@@ -26,10 +26,7 @@ from email.mime.text import MIMEText
 from email.message import Message
 from email.header import Header
 
-reload(sys) 
-sys.setdefaultencoding('utf8')
-
-'''
+"""
 update转成insert
 delete from t1 where id=19;          序号: 1
 insert into t1 select 19;            序号：2
@@ -66,8 +63,7 @@ set global net_read_timeout=1800
 set global net_write_timeout=1800
 
 2. 同步的表如果字段有数字开头，比如123_is_old,那么程序会抛错。
-
-'''
+"""
 
 
 class DateEncoder(json.JSONEncoder):
@@ -115,7 +111,7 @@ class my_db():
             cursor.execute('show slave status')
             result=cursor.fetchall()
             cursor.close()
-        except MySQLdb.Warning,w:
+        except MySQLdb.Warning as w:
             resetwarnings()
         else:
             if result:
@@ -130,7 +126,7 @@ class my_db():
             cursor.execute(sql)
             result=cursor.fetchall()
             cursor.close()
-        except MySQLdb.Warning,w:
+        except MySQLdb.Warning as w:
             resetwarnings()
         else:
             if result:
@@ -148,7 +144,7 @@ class my_db():
             cursor.execute(sql)
             result=cursor.fetchall()
             cursor.close()
-        except MySQLdb.Warning,w:
+        except MySQLdb.Warning as w:
             resetwarnings()
         return result[0]['count']
 
@@ -160,7 +156,7 @@ class my_redis:
         self.passwd=cnf['redis_server']['passwd']
         self.log_pos_prefix=cnf['redis_server']['log_pos_prefix']
         self.server_id=cnf['master_server']['server_id']
-        self.key="{0}{1}".format(self.log_pos_prefix,self.server_id)
+        self.key="{0}{1}".format(self.log_pos_prefix, self.server_id)
         self.connection=self.redis_conn()
 
     def redis_conn(self):
@@ -175,67 +171,23 @@ class my_redis:
     def get_log_pos(self):
         try:
             ret = self.redis_conn().hgetall(self.key)
-            return ret.get('log_file'), ret.get('log_pos')
+            return ret.get(b'log_file').decode('utf-8'), ret.get(b'log_pos').decode('utf-8')
         except Exception as error:
-            logger.error("从redis 读取binlog pos点错误")
+            logger.error("read binlog pos from redis error")
             logger.error(error)
             exit(1)
 
-    def set_log_pos(self,*args):
+    def set_log_pos(self, *args):
         try:
             if args[0] == 'slave':
                 self.redis_conn().hmset(self.key,{'log_pos':args[2], 'log_file':args[1]})
             elif args[0] == 'master':
                 self.redis_conn().hmset(self.key,{'master_host':args[1],'master_port':args[2],'relay_master_log_file':args[3],'exec_master_log_pos':args[4]})
         except Exception as error:
-            logger.error("binlog pos点写入redis错误")
+            logger.error("binlog pos write redis error")
             logger.error(error)
             exit(1)
 
-
-class mark_log:
-    def __init__(self):
-        try:
-            self.file=cnf['log_position']['file']
-        except Exception as error:
-            logger.error("%s 获取存放pos点的文件错误." % (error))
-            exit(1)
-        self.open_file()
-
-    def open_file(self):
-        try:
-            self.config = ConfigParser.ConfigParser()
-            self.config.readfp(open(self.file,'rw'))
-        except Exception as error:
-            logger.error("%s 文件打开错误" % (file)) 
-            logger.error(error)
-            exit(1)
-
-    def get_log_pos(self):
-        try:
-            return self.config.get('log_position','filename'),int(self.config.get('log_position','position')),
-        except Exception as error:
-            logger.error("从文件 读取binlog pos点错误")
-            logger.error(error)
-            sys.exit(1)
-
-    def set_log_pos(self,*args):
-        try:
-            if args[0] == 'slave':
-                self.config.set('log_position','filename',args[1])
-                self.config.set('log_position','position',str(args[2]))
-                self.config.write(open(self.file, 'w'))
-            elif args[0] == 'master':
-                self.config.set('log_position','master_host',args[1])
-                self.config.set('log_position','master_port',args[2])
-                self.config.set('log_position','master_filename',args[3])
-                self.config.set('log_position','master_position',str(args[4]))
-                self.config.write(open(self.file, 'w'))
-        except Exception as error:
-            self.config.write(open(self.file, 'w'))
-            logger.error("binlog pos点写入文件错误")
-            logger.error(error)
-            exit(1)
 
 # 获取ch里面的字段类型，需要根据字段类型处理一些默认值的问题
 def get_ch_column_type(db,table,conf):
@@ -253,7 +205,7 @@ def get_ch_column_type(db,table,conf):
                 column_type_dic[d[0].lower()]=d[1]
         return column_type_dic
     except Exception as error:
-        message="获取clickhouse里面的字段类型错误. %s" % (error)
+        message="get clickhouse filed type error. {}".format(error)
         logger.error(message)
         exit(1)
 
@@ -293,18 +245,17 @@ def keep_new_update(tmp_data,schema,table,pk_dict):
 def get_config(conf):
     try:
         if not os.path.exists(args.conf):
-            print "指定的配置文件: %s 不存在" % (conf)
+            print("conf file not exists: {}".format(conf))
             exit(1)
-        config = ConfigParser.ConfigParser()
-        config.readfp(open(conf,'r'))
+        config = configparser.ConfigParser()
+        config.readfp(open(conf, 'r', encoding='utf-8'))
         config_dict={}
         for title in config.sections():
             config_dict[title]={}
             for one in config.options(title):
                 config_dict[title][one]=config.get(title,one).strip(' ').strip('\'').strip('\"')
     except Exception as error:
-        message="从配置文件获取配置参数错误: %s" % (error)
-        print message
+        message="get config error: {}".format(error)
         exit(1)
     else:
         return config_dict
@@ -324,7 +275,7 @@ def send_mail(to_list,sub,content):
         smtp.close()
         return True
     except Exception as error:
-        logging.error("邮件发送失败: %s" % (error))
+        logging.error("mail send failed: {}".format(error))
         return False
 
 
@@ -339,15 +290,15 @@ def binlog_reading(only_events,conf,debug):
     mysql_conf['port']=int(cnf['master_server']['port'])
     mysql_conf['user']=cnf['master_server']['user']
     mysql_conf['passwd']=cnf['master_server']['passwd']
- 
+
     clickhouse_conf['host']=cnf['clickhouse_server']['host']
     clickhouse_conf['port']=int(cnf['clickhouse_server']['port'])
     clickhouse_conf['passwd']=cnf['clickhouse_server']['passwd']
     clickhouse_conf['user']=cnf['clickhouse_server']['user']
-   
+
     only_schemas=cnf['only_schemas']['schemas'].split(",")
     only_tables=cnf['only_tables']['tables'].split(",")
- 
+
     alarm_mail=cnf['failure_alarm']['alarm_mail'].split(",")
     skip_dmls_all=cnf['skip_dmls_all']['skip_type'].split(",")
 
@@ -356,22 +307,19 @@ def binlog_reading(only_events,conf,debug):
 
     insert_nums=int(cnf['bulk_insert_nums']['insert_nums'])
     interval=int(cnf['bulk_insert_nums']['interval'])
-    logger.info('开始同步数据时间 %s' % (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+    logger.info('sync start time {}'.format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
 
-    if logtoredis:
-        redis=my_redis()
-        logger.info("同步binlog pos点从Redis读取")
-    else:
-        logger.info("同步binlog pos点从文件读取")
-        redis=mark_log()
+    rd = my_redis()
+    logger.info("sync binlog pos read from Redis")
 
     db=my_db()
-    log_file, log_pos = redis.get_log_pos()
+    log_file, log_pos = rd.get_log_pos()
+
     if log_file and log_pos:
         log_file == log_file
         log_pos == log_pos
     else:
-        logger.error("获取binlog pos点错误,程序退出....")
+        logger.error("get binlog pos error,program exited....")
         exit(1)
 
     pk_dict={}
@@ -384,18 +332,19 @@ def binlog_reading(only_events,conf,debug):
             else:
                 name="{}.{}".format(schema,table)
                 if db.check_table_exists(schema,table):
-                    logger.error("要同步的表: %s 不存在自增主键，程序退出...." %(name))
+                    logger.error("table to sync: %s does not contain auto-increment key....,program exited".format(name))
                     exit(1)
 
-    message="读取binlog: {0}:{1}".format(log_file,log_pos)
-    ch_info="同步到clickhouse server {0}:{1}".format(cnf['clickhouse_server']['host'],cnf['clickhouse_server']['port'])
+    message="reading binlog: {0}:{1}".format(log_file,log_pos)
+    ch_info="sync to clickhouse server {0}:{1}".format(cnf['clickhouse_server']['host'],cnf['clickhouse_server']['port'])
     repl_info="{0}:{1}".format(cnf['master_server']['host'],cnf['master_server']['port'])
-    alarm_info="{0} 库:{1} 表:{2} 同步数据到clickhouse服务器:{3}失败".format(repl_info,only_schemas,only_tables,socket.gethostname())
-    logger.info('从服务器 %s 同步数据' % (repl_info))
+    alarm_info="{0} database:{1} table:{2} sync data to clickhouse server:{3}failed".format(repl_info,only_schemas,only_tables,socket.gethostname())
+
+    logger.info('reading data from {}'.format(repl_info))
     logger.info(message)
     logger.info(ch_info)
-    logger.info('同步到clickhouse的数据库: %s' % (only_schemas))
-    logger.info('同步到clickhouse的表: %s' % (only_tables))
+    logger.info('sync data to clickhouse database: {}'.format(only_schemas))
+    logger.info('sync to clickhouse table: {}'.format(only_tables))
 
     stream = BinLogStreamReader(connection_settings=mysql_conf,resume_stream=True,blocking=True,\
                                 server_id=mysql_server_id, only_tables=only_tables,only_schemas=only_schemas,\
@@ -411,7 +360,7 @@ def binlog_reading(only_events,conf,debug):
                     event["values"] = row["values"]
                     event['event_unixtime']=int(time.time())
                     event['action_core']='2'
-               
+
                 elif isinstance(binlogevent, UpdateRowsEvent):
                     event["action"] = "insert"
                     event["values"] = row["after_values"]
@@ -429,10 +378,10 @@ def binlog_reading(only_events,conf,debug):
                 if len(event_list) == insert_nums or ( int(time.time()) - event_list[0]['event_unixtime'] >= interval and interval > 0 ):
                     repl_status=db.slave_status()
                     log_file=stream.log_file
-                    log_pos=stream.log_pos                    
+                    log_pos=stream.log_pos
                     if repl_status:
-                        redis.set_log_pos('master',repl_status['Master_Host'],repl_status['Master_Port'],repl_status['Relay_Master_Log_File'],repl_status['Exec_Master_Log_Pos'])
-         
+                        rd.set_log_pos('master',repl_status['Master_Host'],repl_status['Master_Port'],repl_status['Relay_Master_Log_File'],repl_status['Exec_Master_Log_Pos'])
+
                     data_dict = {}
                     tmp_data = []
                     for items in event_list:
@@ -446,20 +395,20 @@ def binlog_reading(only_events,conf,debug):
 
                     status=data_to_ck(tmp_data,alarm_info,alarm_mail,debug,skip_dmls_all,skip_delete_tb_name,skip_update_tb_name,pk_dict,only_schemas,**clickhouse_conf)
                     if status:
-                        redis.set_log_pos('slave',log_file,log_pos)
+                        rd.set_log_pos('slave',log_file,log_pos)
                         del event_list
                         event_list=[]
                         sequence = 0
                         gc.collect()
                     else:
-                        log_file,log_pos = redis.get_log_pos()
-                        message="SQL执行错误,当前binlog位置 {0}:{1}".format(log_file,log_pos)
+                        log_file,log_pos = rd.get_log_pos()
+                        message="SQL execute error,the binlog positon {0}:{1}".format(log_file,log_pos)
                         logger.error(message)
                         exit(1)
 
     except KeyboardInterrupt:
-        log_file,log_pos = redis.get_log_pos()
-        message="同步程序退出,当前同步位置 {0}:{1}".format(log_file,log_pos)
+        log_file,log_pos = rd.get_log_pos()
+        message="program exited,sync pos now {0}:{1}".format(log_file,log_pos)
         logger.info(message)
     finally:
         stream.close()
@@ -487,11 +436,11 @@ def insert_update(tmp_data,pk_dict):
                     data['values'][key]=''
                 elif column_type[key] in int_list:
                     data['values'][key]=0
-        
+
             # decimal 字段类型处理，后期ch兼容mysql协议可以删除
             if type(value) == decimal.Decimal:
                 data['values'][key]=str(value)
-            
+
         insert_data.append(data['values'])
 
     del_sql=event_primary_key(schema,table,tmp_data,pk_dict)
@@ -583,14 +532,14 @@ def event_primary_key(schema,table,tmp_data,pk_dict):
 
     for i in del_list:
         for k,v in i.items():
-            last_del.setdefault(k,[]).append(v)    
+            last_del.setdefault(k,[]).append(v)
 
     if primary_key:
         for k,v in last_del.items():
             if k not in primary_key:
                 del last_del[k]
     else:
-        message="delete {0}.{1} 但是mysql里面没有定义主键...".format(schema,table)
+        message="delete {0}.{1} but primarykey not exists in mysql...".format(schema,table)
         logger.warning(message)
 
     for k,v in last_del.items():
@@ -629,7 +578,7 @@ def data_to_ck(event,alarm_info,alarm_mail,debug,skip_dmls_all,skip_delete_tb_na
     mutation_data=[]
     if len(only_schemas) == 1:
         query_sql="select count(*) from system.mutations where is_done=0 and database in %s" % (str(tuple(only_schemas)))
-        query_sql=query_sql.replace(",",'')  
+        query_sql=query_sql.replace(",",'')
     else:
         query_sql="select count(*) from system.mutations where is_done=0 and database in %s" % (str(tuple(only_schemas)))
     mutation_sql="select count(*) as mutation_faild ,concat(database,'.',table)as db,create_time from system.mutations where is_done=0 and database in %s group by db,create_time" % (str(tuple(only_schemas)))
@@ -642,7 +591,7 @@ def data_to_ck(event,alarm_info,alarm_mail,debug,skip_dmls_all,skip_delete_tb_na
             tmp=dict(zip(mutation_list,d))
             mutation_data.append(tmp)
         last_data=json.dumps(mutation_data,indent=4,cls=DateEncoder)
-        message="mutations error faild num {0}. delete有失败.请进行检查. 详细信息: {1}".format(mutations_faild_num,last_data)
+        message="mutations error faild num {0}. delete failed some.Please check. detail: {1}".format(mutations_faild_num,last_data)
         logger.error(message)
         send_mail(alarm_mail,alarm_info,message)
 
@@ -654,18 +603,18 @@ def data_to_ck(event,alarm_info,alarm_mail,debug,skip_dmls_all,skip_delete_tb_na
                     items['values'][key.upper()] = items['values'].pop(key)
                 else:
                     items['values'][key.lower()] = items['values'].pop(key)
-    
+
     # 处理同一条记录update多次的情况
     new_data=[]
     for tmp_data in event:
         table=tmp_data[0]['table']
         schema=tmp_data[0]['schema']
-       
+
         if tmp_data[0]['action'] == 'insert':
             new_data.append(keep_new_update(tmp_data,schema,table,pk_dict))
         else:
             new_data.append(tmp_data)
-    
+
     tmp_data_dic={}
     event_table=[]
     for data in new_data:
@@ -697,18 +646,18 @@ def data_to_ck(event,alarm_info,alarm_mail,debug,skip_dmls_all,skip_delete_tb_na
     for i in sort_list:
         index = int(i[0])
         new_event.append(last_data[index])
-    
-    
+
+
     # 正式把处理完成的数据插入clickhouse
     for tmp_data in new_event:
         if tmp_data[0]['action'] == 'delete':
             table=tmp_data[0]['table']
             schema=tmp_data[0]['schema']
             skip_dml_table_name="{0}.{1}".format(schema,table)
-        
+
             del_sql=event_primary_key(schema,table,tmp_data,pk_dict)
             if debug:
-                message="DELETE 数据删除SQL: %s" % (del_sql)
+                message="DELETE data SQL: %s" % (del_sql)
                 logger.info(message)
             try:
                 if 'delete' in skip_dmls_all:
@@ -717,22 +666,22 @@ def data_to_ck(event,alarm_info,alarm_mail,debug,skip_dmls_all,skip_delete_tb_na
                     return True
                 else:
                     client.execute(del_sql)
-        
+
             except Exception as error:
-                message="执行出错SQL:  " + del_sql
+                message="execute error SQL:  " + del_sql
                 mail_contex="{0} {1}".format(message,error)
                 send_mail(alarm_mail,alarm_info,mail_contex)
                 logger.error(message)
                 logger.error(error)
                 return False
-    
+
         elif tmp_data[0]['action'] == 'insert':
             sql=insert_update(tmp_data,pk_dict)
             try:
                 if client.execute(sql['query_sql'])[0][0] >= 1:
                     client.execute(sql['del_sql'])
             except Exception as error:
-                message="在插入数据之前删除数据,执行出错SQL:  " + sql['del_sql']
+                message="delete data before insert,execute error SQL:  " + sql['del_sql']
                 mail_contex="{0} {1}".format(message,error)
                 send_mail(alarm_mail,alarm_info,mail_contex)
                 logger.error(message)
@@ -740,12 +689,12 @@ def data_to_ck(event,alarm_info,alarm_mail,debug,skip_dmls_all,skip_delete_tb_na
                 return False
 
             if debug:
-                message="INSERT 数据插入SQL: %s %s " % (sql['insert_sql'],str(sql['insert_data']))
+                message="INSERT SQL: {} {} ".format(sql['insert_sql'],str(sql['insert_data']))
                 logger.info(message)
             try:
                 client.execute(sql['insert_sql'],sql['insert_data'],types_check=True)
             except Exception as error:
-                message="插入数据执行出错SQL:  " + sql['insert_sql'] + str(sql['insert_data'])
+                message="Insert data execute error SQL:  " + sql['insert_sql'] + str(sql['insert_data'])
                 mail_contex="{0} {1}".format(message,error)
                 send_mail(alarm_mail,alarm_info,mail_contex)
                 logger.error(message)
@@ -765,9 +714,8 @@ def init_parse():
         description='mysql data is copied to clikhouse',
         epilog='By dengyayun @2019',
     )
-    parser.add_argument('-c','--conf',required=False,default='./metainfo.conf',help='Data synchronization information file')
-    parser.add_argument('-d','--debug',action='store_true',default=False,help='Display SQL information')
-    parser.add_argument('-l','--logtoredis',action='store_true',default=False,help='log position to redis ,default file')
+    parser.add_argument('-c','--conf', required=False, default='./metainfo.conf', help='Data synchronization information file')
+    parser.add_argument('-d','--debug', action='store_true', default=False, help='Display SQL information')
     return parser
 
 
@@ -775,7 +723,6 @@ if __name__ == '__main__':
     parser = init_parse()
     args = parser.parse_args()
     config = args.conf
-    logtoredis = args.logtoredis
     global cnf
     cnf=get_config(config)
     global colum_lower_upper
@@ -794,7 +741,7 @@ if __name__ == '__main__':
     logger = logging.getLogger("mylogger")
     logger.setLevel(logging.DEBUG)
 
-    fh = logging.FileHandler(cnf['repl_log']['log_dir'])
+    fh = logging.FileHandler(cnf['repl_log']['log_dir'], 'w', 'utf-8')
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(logging.Formatter(
     fmt="%(asctime)s %(filename)s:%(lineno)d %(levelname)s %(message)s",
@@ -810,7 +757,7 @@ if __name__ == '__main__':
 
     logger.addHandler(fh)
     logger.addHandler(sh)
-    
+
     only_events=(DeleteRowsEvent, WriteRowsEvent, UpdateRowsEvent)
     binlog_reading(only_events,conf=args.conf,debug=args.debug)
-    
+
